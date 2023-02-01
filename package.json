@@ -1,0 +1,22 @@
+{
+  "name": "flaredrive",
+  "version": "0.0.1",
+  "description": "CloudFlare R2 storage manager with Pages and Workers.",
+  "scripts": {
+    "dev": "wrangler pages dev . --r2 BUCKET"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/longern/FlareDrive.git"
+  },
+  "author": "longern",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/longern/FlareDrive/issues"
+  },
+  "homepage": "https://github.com/longern/FlareDrive#readme",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^3.3.1",
+    "wrangler": "^2.6.2"
+  }
+}
