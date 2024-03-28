@@ -40,7 +40,7 @@
         </button>
         <Menu
           v-model="showMenu"
-          :items="[{ text: '名称A-Z' }, { text: '大小↑' } ,{ text: '大小↓' }]"
+          :items="[{ text: '名称A-Z' }, { text: '大小↑' } ,{ text: '大小↓' }, { text: '粘贴' }]"
           @click="onMenuClick"
         />
       </div>
@@ -174,6 +174,11 @@
           </a>
         </li>
         <li>
+          <button @click="clipboard = focusedItem.key">
+            <span>复制</span>
+          </button>
+        </li>
+        <li>
           <button @click="copyLink(`/raw/${focusedItem.key}`)">
             <span>复制链接</span>
           </button>
@@ -205,6 +210,7 @@ export default {
     cwd: new URL(window.location).searchParams.get("p") || "",
     files: [],
     folders: [],
+    clipboard: null,
     focusedItem: null,
     loading: false,
     order: null,
@@ -240,6 +246,13 @@ export default {
     copyLink(link) {
       const url = new URL(link, window.location.origin);
       navigator.clipboard.writeText(url.toString());
+    },
+
+    async copyPaste(source, target) {
+      const uploadUrl = `/api/write/items/${target}`;
+      await axios.put(uploadUrl, "", {
+        headers: { "x-amz-copy-source": encodeURIComponent(source) },
+      });
     },
 
     async createFolder() {
@@ -311,6 +324,8 @@ export default {
         case "大小↓":
           this.order = "大小↓";
           break;
+        case "粘贴":
+          return this.pasteFile();
       }
       this.files.sort((a, b) => {
         if (this.order === "大小↑") {
@@ -332,6 +347,15 @@ export default {
 
     preview(filePath){
       window.open(filePath);
+    },
+
+    async pasteFile() {
+      if (!this.clipboard) return;
+      let newName = window.prompt("Rename to:");
+      if (newName === null) return;
+      if (newName === "") newName = this.clipboard.split("/").pop();
+      await this.copyPaste(this.clipboard, `${this.cwd}${newName}`);
+      this.fetchFiles();
     },
 
     async processUploadQueue() {
@@ -404,10 +428,7 @@ export default {
     async renameFile(key) {
       const newName = window.prompt("重命名为:");
       if (!newName) return;
-      const uploadUrl = `/api/write/items/${this.cwd}${newName}`;
-      await axios.put(uploadUrl, "", {
-        headers: { "x-amz-copy-source": encodeURIComponent(key) },
-      });
+      await this.copyPaste(key, `${this.cwd}${newName}`);
       await axios.delete(`/api/write/items/${key}`);
       this.fetchFiles();
     },
