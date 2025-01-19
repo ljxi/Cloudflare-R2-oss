@@ -502,9 +502,16 @@ export default {
           const sourceBasePath = key.slice(0, -9);
           
           // 构建目标路径（确保不会出现双斜杠）
-          const targetBasePath = targetPath 
-            ? (targetPath.endsWith('/') ? targetPath + finalFileName : targetPath + '/' + finalFileName)
-            : finalFileName;
+          let targetBasePath;
+          if (targetPath === '') {
+            // 根目录情况
+            targetBasePath = finalFileName;
+          } else {
+            // 其他目录情况
+            targetBasePath = targetPath.endsWith('/') 
+              ? targetPath + finalFileName 
+              : targetPath + '/' + finalFileName;
+          }
           
           // 确保目标路径以/结尾
           const normalizedTargetPath = targetBasePath.endsWith('/') ? targetBasePath : targetBasePath + '/';
@@ -518,17 +525,21 @@ export default {
           
           // 首先创建目标文件夹
           try {
-            await axios.put(`/api/write/items/${normalizedTargetPath}_$folder$`, '');
+            // 创建目标文件夹标记，确保路径格式正确
+            const folderMarker = targetBasePath + '_$folder$';
+            await axios.put(`/api/write/items/${folderMarker}`, '');
           } catch (error) {
             console.error('创建目标文件夹失败:', error);
+            throw error; // 如果创建文件夹失败，终止整个移动操作
           }
           
           // 移动所有项目
           for (const item of allItems) {
             try {
               const relativePath = item.key.substring(sourceBasePath.length);
-              // 确保新路径不会以/开头
-              const newPath = normalizedTargetPath + (relativePath.startsWith('/') ? relativePath.slice(1) : relativePath);
+              // 确保新路径不会以/开头，并且移除所有连续的斜杠
+              const newPath = (normalizedTargetPath + (relativePath.startsWith('/') ? relativePath.slice(1) : relativePath))
+                .replace(/\/{2,}/g, '/');
               
               // 复制到新位置
               await this.copyPaste(item.key, newPath);
@@ -554,10 +565,20 @@ export default {
           this.uploadProgress = null;
         } else {
           // 单文件移动逻辑
-          const targetFilePath = targetPath 
-            ? (targetPath.endsWith('/') ? targetPath + finalFileName : targetPath + '/' + finalFileName)
-            : finalFileName;
-            
+          let targetFilePath;
+          if (targetPath === '') {
+            // 根目录情况
+            targetFilePath = finalFileName;
+          } else {
+            // 其他目录情况
+            targetFilePath = targetPath.endsWith('/') 
+              ? targetPath + finalFileName 
+              : targetPath + '/' + finalFileName;
+          }
+          
+          // 移除所有连续的斜杠
+          targetFilePath = targetFilePath.replace(/\/{2,}/g, '/');
+          
           await this.copyPaste(key, targetFilePath);
           await axios.delete(`/api/write/items/${key}`);
         }
@@ -567,6 +588,7 @@ export default {
       } catch (error) {
         console.error('移动失败:', error);
         alert('移动失败,请检查目标路径是否正确');
+        this.uploadProgress = null; // 确保在错误时清除进度条
       }
     },
 
