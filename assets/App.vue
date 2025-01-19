@@ -154,6 +154,11 @@
           </button>
         </li>
         <li>
+          <button @click="moveFile(focusedItem + '_$folder$')">
+            <span>移动</span>
+          </button>
+        </li>
+        <li>
           <button
             style="color: red"
             @click="removeFile(focusedItem + '_$folder$')"
@@ -176,6 +181,11 @@
         <li>
           <button @click="clipboard = focusedItem.key">
             <span>复制</span>
+          </button>
+        </li>
+        <li>
+          <button @click="moveFile(focusedItem.key)">
+            <span>移动</span>
           </button>
         </li>
         <li>
@@ -431,6 +441,30 @@ export default {
       await this.copyPaste(key, `${this.cwd}${newName}`);
       await axios.delete(`/api/write/items/${key}`);
       this.fetchFiles();
+    },
+
+    async moveFile(key) {
+      const targetPath = window.prompt("请输入目标路径(例如: folder1/folder2/):");
+      if (!targetPath) return;
+      
+      // 确保目标路径以/结尾
+      const normalizedPath = targetPath.endsWith('/') ? targetPath : targetPath + '/';
+      // 获取文件名
+      const fileName = key.split('/').pop();
+      // 如果是文件夹,需要移除_$folder$后缀
+      const finalFileName = fileName.endsWith('_$folder$') ? fileName.slice(0, -9) : fileName;
+      
+      try {
+        // 复制到新位置
+        await this.copyPaste(key, `${normalizedPath}${finalFileName}`);
+        // 删除原文件
+        await axios.delete(`/api/write/items/${key}`);
+        // 刷新文件列表
+        this.fetchFiles();
+      } catch (error) {
+        console.error('移动文件失败:', error);
+        alert('移动文件失败,请检查目标路径是否正确');
+      }
     },
 
     uploadFiles(files) {
