@@ -444,15 +444,59 @@ export default {
     },
 
     async moveFile(key) {
-      const targetPath = window.prompt("请输入目标路径(例如: folder1/folder2/):");
-      if (!targetPath) return;
+      // 获取当前的目录结构
+      const currentPath = this.cwd; // 当前所在目录
+      const allFolders = [...this.folders]; // 所有可用目录
       
-      // 确保目标路径以/结尾
-      const normalizedPath = targetPath.endsWith('/') ? targetPath : targetPath + '/';
+      // 如果不在根目录，添加返回上级目录选项
+      if (currentPath !== '') {
+        const parentPath = currentPath.replace(/[^\/]+\/$/, '');
+        if (!allFolders.includes(parentPath) && parentPath !== '') {
+          allFolders.unshift(parentPath);
+        }
+      }
+      
+      // 添加根目录选项
+      if (!allFolders.includes('')) {
+        allFolders.unshift('');
+      }
+      
+      // 构建选择列表
+      const folderOptions = allFolders.map(folder => {
+        const displayName = folder === '' ? '根目录' : 
+                          folder === currentPath ? '当前目录' :
+                          folder.replace(/.*\/(?!$)|\//g, '') + '/';
+        return {
+          display: displayName,
+          value: folder
+        };
+      });
+      
+      // 创建选择提示
+      const options = folderOptions.map((opt, index) => 
+        `${index + 1}. ${opt.display}`
+      ).join('\n');
+      
+      const promptText = `请选择目标目录(输入数字):\n${options}\n`;
+      const selection = window.prompt(promptText);
+      
+      if (!selection) return;
+      
+      const selectedIndex = parseInt(selection) - 1;
+      if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= folderOptions.length) {
+        alert('无效的选择');
+        return;
+      }
+      
+      const targetPath = folderOptions[selectedIndex].value;
+      
       // 获取文件名
       const fileName = key.split('/').pop();
       // 如果是文件夹,需要移除_$folder$后缀
       const finalFileName = fileName.endsWith('_$folder$') ? fileName.slice(0, -9) : fileName;
+      
+      // 确保目标路径格式正确
+      const normalizedPath = targetPath + (targetPath && !targetPath.endsWith('/') ? '/' : '');
       
       try {
         // 复制到新位置
