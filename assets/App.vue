@@ -499,16 +499,94 @@ export default {
       const normalizedPath = targetPath + (targetPath && !targetPath.endsWith('/') ? '/' : '');
       
       try {
-        // 复制到新位置
-        await this.copyPaste(key, `${normalizedPath}${finalFileName}`);
-        // 删除原文件
-        await axios.delete(`/api/write/items/${key}`);
+        // 如果是目录（以_$folder$结尾），则需要移动整个目录内容
+        if (key.endsWith('_$folder$')) {
+          // 获取源目录的基础路径（移除_$folder$后缀）
+          const sourceBasePath = key.slice(0, -9);
+          // 获取目标目录的基础路径
+          const targetBasePath = `${normalizedPath}${finalFileName}/`;
+          
+          // 递归获取所有子文件和子目录
+          const allItems = await this.getAllItems(sourceBasePath);
+          
+          // 显示进度提示
+          const totalItems = allItems.length;
+          let processedItems = 0;
+          
+          // 移动所有项目
+          for (const item of allItems) {
+            const relativePath = item.key.substring(sourceBasePath.length);
+            const newPath = targetBasePath + relativePath;
+            
+            try {
+              // 复制到新位置
+              await this.copyPaste(item.key, newPath);
+              // 删除原位置
+              await axios.delete(`/api/write/items/${item.key}`);
+              
+              // 更新进度
+              processedItems++;
+              this.uploadProgress = (processedItems / totalItems) * 100;
+            } catch (error) {
+              console.error(`移动 ${item.key} 失败:`, error);
+            }
+          }
+          
+          // 移动目录标记
+          await this.copyPaste(key, `${targetBasePath}_$folder$`);
+          await axios.delete(`/api/write/items/${key}`);
+          
+          // 清除进度
+          this.uploadProgress = null;
+        } else {
+          // 单文件移动逻辑保持不变
+          await this.copyPaste(key, `${normalizedPath}${finalFileName}`);
+          await axios.delete(`/api/write/items/${key}`);
+        }
+        
         // 刷新文件列表
         this.fetchFiles();
       } catch (error) {
-        console.error('移动文件失败:', error);
-        alert('移动文件失败,请检查目标路径是否正确');
+        console.error('移动失败:', error);
+        alert('移动失败,请检查目标路径是否正确');
       }
+    },
+
+    // 新增：递归获取目录下所有文件和子目录
+    async getAllItems(prefix) {
+      const items = [];
+      let marker = null;
+      
+      do {
+        const url = new URL(`/api/children/${prefix}`, window.location.origin);
+        if (marker) {
+          url.searchParams.set('marker', marker);
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        // 添加文件
+        items.push(...data.value);
+        
+        // 处理子目录
+        for (const folder of data.folders) {
+          // 添加目录标记
+          items.push({
+            key: folder + '_$folder$',
+            size: 0,
+            uploaded: new Date().toISOString(),
+          });
+          
+          // 递归获取子目录内容
+          const subItems = await this.getAllItems(folder);
+          items.push(...subItems);
+        }
+        
+        marker = data.marker;
+      } while (marker);
+      
+      return items;
     },
 
     uploadFiles(files) {
