@@ -7,9 +7,6 @@
 
 cloudflare R2是一个文件储存系统，配合Cloudflare Workers可以实现这样一个网盘系统
 
-[文件库 (oss.ljxnet.cn)](https://oss.ljxnet.cn/)
-
-
 ### 搭建教程
 
 
