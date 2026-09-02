@@ -1,37 +1,42 @@
-# 利用Cloudflare R2 + Workers搭建在线网盘
+# Cloudflare R2 现代云盘
 
+基于 Cloudflare Pages + Pages Functions + R2 的在线文件管理器。当前版本在保留原有 R2 文件操作与权限逻辑的基础上，升级了现代化响应式界面。
 
-[汉化修改自/longern/FlareDrive](https://github.com/longern/FlareDrive)
+## Cloudflare Pages 部署
 
-增加了权限系统，支持多管理员，分别授权目录
+1. Fork 或连接本仓库到 Cloudflare Pages。
+2. 构建设置保持默认即可：本项目为免构建静态 Pages 应用，`index.html` 位于项目根目录。
+3. 在 Pages 项目的环境变量中配置原项目需要的变量，例如：
 
-cloudflare R2是一个文件储存系统，配合Cloudflare Workers可以实现这样一个网盘系统
+| 变量 | 示例 | 说明 |
+| --- | --- | --- |
+| `PUBURL` | `https://pub-xxxx.r2.dev` | R2 公共存储桶 URL |
+| `GUEST` | `public/` | 游客允许写入的目录 |
+| `admin:123456` | `*` | 管理员账号及可写目录 |
+| `user1:123456` | `user1/,userPublic/` | 普通用户账号及可写目录 |
 
-### 搭建教程
+> 账号配置沿用原项目规则。生产环境请使用强密码，并避免把敏感配置写进代码仓库。
 
+4. 在 Cloudflare Pages → 项目 → Settings → Functions → R2 bucket bindings 中绑定 R2 存储桶，变量名称使用 `BUCKET`。
+5. 保存后重新部署。
 
-1. fork该仓库
-2. 前往Cloudflare R2新建一个R2储存桶，并前往储存桶设置，允许公开访问，复制**公共存储桶 URL**
-3. 前往Cloudflare Pages新建一个站点，选择连接到Git
+## 本地预览
 
-4.选择刚刚fork的仓库，点击开始设置
-5.项目名称可以修改，其他项目保持默认不动
+安装依赖后可使用：
 
-6.展开环境变量，添加
+```bash
+npm install
+npm run dev
+```
 
-| 变量名称| 值|
-| --- | --- |
-| PUBURL | 复制的**公共存储桶URL** |
-| GUEST | public/ |
-| admin:123456 | * |
-| user1:123456 | user1/,userPublic/ |
+## 本次界面升级
 
-以此类推，GUEST代表游客的允许写入目录
+- 紫色渐变的现代化云盘视觉风格
+- 毛玻璃搜索栏与顶部操作区
+- 桌面端三列、平板两列、手机单列的自适应布局
+- 文件/文件夹卡片、悬停动效与更清晰的文件信息层级
+- 更醒目的上传浮动按钮
+- 优化菜单、空状态、上传弹层和移动端体验
+- 保留原有 Vue 3 + R2 Functions 文件管理能力
 
-管理员则以`账号:密码`的形式设置，值代表其允许写入的目录，用`,`隔开，**请勿在前后加逗号，否则会授予所有目录的写入权限**
-
-设置好后点击**开始部署**
-
-7.前往Pages->cloudflare-r2-oss->设置->函数->R2 存储桶绑定,绑定R2存储桶,变量名称`BUCKET`
-
-8.在部署页面重新部署即可
+原项目基于 longern/FlareDrive 汉化修改，并加入权限系统与多管理员目录授权功能。
