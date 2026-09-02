@@ -1,54 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>文件库</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f97316" />
+    <meta name="description" content="Cloudflare R2 文件管理器" />
+    <title>文件库 · R2 Drive</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.2.37/vue.global.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.27.2/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vue3-sfc-loader/dist/vue3-sfc-loader.js"></script>
-    <link rel="prefetch" href="/assets/main.mjs" />
-    <link rel="prefetch" href="/assets/MimeIcon.vue" />
+    <script src="https://cdn.jsdelivr.net/npm/vue3-sfc-loader@0.9.5/dist/vue3-sfc-loader.js"></script>
     <link rel="stylesheet" href="/assets/main.css" />
     <link rel="manifest" href="/assets/manifest.json" />
     <link rel="icon" type="image/png" href="/assets/favicon.png" />
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot-screen" role="status" aria-live="polite">
+        <div class="boot-logo">R2</div>
+        <div class="boot-title">文件库</div>
+        <div class="boot-text">正在加载文件管理器…</div>
+      </div>
+    </div>
     <script>
-      const { loadModule } = window["vue3-sfc-loader"];
-
-      const options = {
-        moduleCache: { vue: Vue },
-        async getFile(url) {
-          const res = await fetch(url);
-          if (!res.ok)
-            throw Object.assign(new Error(res.statusText + " " + url), { res });
-          return {
-            getContentData: (asBinary) =>
-              asBinary ? res.arrayBuffer() : res.text(),
-          };
-        },
-        addStyle(textContent) {
-          const style = document.createElement("style");
-          style.textContent = textContent;
-          const ref = document.head.getElementsByTagName("style")[0] || null;
-          document.head.insertBefore(style, ref);
-        },
-      };
-
-      const app = Vue.createApp({
-        components: {
-          App: Vue.defineAsyncComponent(() =>
-            loadModule("/assets/App.vue", options)
-          ),
-        },
-        template: "<App></App>",
-      });
-
-      app.mount("#app");
+      (function () {
+        const appEl = document.getElementById("app");
+        function showError(message) {
+          appEl.innerHTML = '<div class="boot-screen boot-error"><div class="boot-logo">!</div><div class="boot-title">页面加载失败</div><div class="boot-text">' + message + '</div><button class="boot-retry" onclick="location.reload()">重新加载</button></div>';
+        }
+        if (!window.Vue || !window["vue3-sfc-loader"]) {
+          showError("依赖加载失败，请检查网络或 Cloudflare Pages 的资源访问设置。");
+          return;
+        }
+        const { loadModule } = window["vue3-sfc-loader"];
+        const options = {
+          moduleCache: { vue: Vue },
+          async getFile(url) {
+            const res = await fetch(url, { cache: "no-cache" });
+            if (!res.ok) throw Object.assign(new Error(res.status + " " + res.statusText + " " + url), { res });
+            return { getContentData: (asBinary) => asBinary ? res.arrayBuffer() : res.text() };
+          },
+          addStyle(textContent) {
+            const style = document.createElement("style");
+            style.textContent = textContent;
+            document.head.appendChild(style);
+          },
+        };
+        const App = Vue.defineAsyncComponent({
+          loader: () => loadModule("/assets/App.vue", options),
+          timeout: 15000,
+          onError(error, retry, fail, attempts) {
+            console.error("App.vue failed to load:", error);
+            if (attempts <= 2) retry(); else fail();
+          },
+        });
+        try {
+          const app = Vue.createApp({
+            components: { App },
+            errorCaptured(error) {
+              console.error("Vue application error:", error);
+              showError("应用初始化异常，请刷新页面重试。");
+              return false;
+            },
+            template: "<App />",
+          });
+          app.mount(appEl);
+        } catch (error) {
+          console.error(error);
+          showError("应用初始化失败，请刷新页面重试。");
+        }
+      })();
     </script>
-
-    <script type="module"></script>
   </body>
 </html>

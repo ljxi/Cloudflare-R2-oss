@@ -6,26 +6,35 @@ export async function onRequestGet(context) {
     const prefix = path && `${path}/`;
     if (!bucket || prefix.startsWith("_$flaredrive$/")) return notFound();
 
-    const objList = await bucket.list({
-      prefix,
-      delimiter: "/",
-      include: ["httpMetadata", "customMetadata"],
-    });
-    const objKeys = objList.objects
-      .filter((obj) => !obj.key.endsWith("/_$folder$"))
-      .map((obj) => {
-        const { key, size, uploaded, httpMetadata, customMetadata } = obj;
-        return { key, size, uploaded, httpMetadata, customMetadata };
+    const objects = [];
+    const folderSet = new Set();
+    let cursor: string | undefined;
+
+    do {
+      const objList = await bucket.list({
+        prefix,
+        delimiter: "/",
+        cursor,
+        include: ["httpMetadata", "customMetadata"],
       });
 
-    let folders = objList.delimitedPrefixes;
-    if (!path)
-      folders = folders.filter((folder) => folder !== "_$flaredrive$/");
+      for (const obj of objList.objects) {
+        if (obj.key.endsWith("/_$folder$")) continue;
+        const { key, size, uploaded, httpMetadata, customMetadata } = obj;
+        objects.push({ key, size, uploaded, httpMetadata, customMetadata });
+      }
 
-    return new Response(JSON.stringify({ value: objKeys, folders }), {
-      headers: { "Content-Type": "application/json" },
+      for (const folder of objList.delimitedPrefixes) folderSet.add(folder);
+      cursor = objList.truncated ? objList.cursor : undefined;
+    } while (cursor);
+
+    let folders = [...folderSet];
+    if (!path) folders = folders.filter((folder) => folder !== "_$flaredrive$/");
+
+    return new Response(JSON.stringify({ value: objects, folders }), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   } catch (e) {
-    return new Response(e.toString(), { status: 500 });
+    return new Response(String(e), { status: 500 });
   }
 }

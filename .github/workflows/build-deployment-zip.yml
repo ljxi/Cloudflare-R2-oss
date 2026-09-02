@@ -1,0 +1,29 @@
+name: Build deployment ZIP
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create deployment package
+        run: |
+          rm -rf .git .github dist
+          mkdir -p dist
+          zip -r dist/Cloudflare-R2-oss-pages-deployment.zip . -x 'node_modules/*' '*.DS_Store' 'dist/*'
+
+      - name: Upload deployment ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cloudflare-R2-oss-pages-deployment
+          path: dist/Cloudflare-R2-oss-pages-deployment.zip
+          if-no-files-found: error

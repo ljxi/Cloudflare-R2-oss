@@ -5,10 +5,15 @@ export function notFound() {
 export function parseBucketPath(context): [any, string] {
   const { request, env, params } = context;
   const url = new URL(request.url);
+  const pathSegments = (params.path || []) as string[];
+  let path = "";
 
-  const pathSegments = (params.path || []) as String[];
-  const path = decodeURIComponent(pathSegments.join("/"));
+  try {
+    path = decodeURIComponent(pathSegments.join("/"));
+  } catch {
+    return [null, ""];
+  }
+
   const driveid = url.hostname.replace(/\..*/, "");
-
   return [env[driveid] || env["BUCKET"], path];
 }
