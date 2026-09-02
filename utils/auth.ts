@@ -1,31 +1,40 @@
 export function get_auth_status(context) {
-    var dopath = context.request.url.split("/api/write/items/")[1]
-    if(context.env["GUEST"]){
-        if(dopath.startsWith("_$flaredrive$/thumbnails/"))return true;
-        const allow_guest = context.env["GUEST"].split(",")
-        for (var aa of allow_guest){
-            if(aa == "*"){
-                return true
-            }else if(dopath.startsWith(aa)){
-                return true
-            }
-        }
-    }
-    var headers = new Headers(context.request.headers);
-    if(!headers.get('Authorization'))return false
-    const Authorization=headers.get('Authorization').split("Basic ")[1]
-    const account = atob(Authorization);
-    if(!account)return false
-    if(!context.env[account])return false
-    if(dopath.startsWith("_$flaredrive$/thumbnails/"))return true;
-    const allow = context.env[account].split(",")
-    for (var a of allow){
-        if(a == "*"){
-            return true
-        }else if(dopath.startsWith(a)){
-            return true
-        }
-    }
+  const url = new URL(context.request.url);
+  const marker = "/api/write/items/";
+  const markerIndex = url.pathname.indexOf(marker);
+  let path = markerIndex >= 0 ? url.pathname.slice(markerIndex + marker.length) : "";
+
+  try {
+    path = decodeURIComponent(path);
+  } catch {
     return false;
   }
-  
+
+  if (path.startsWith("_$flaredrive$/thumbnails/")) return true;
+
+  const guest = context.env["GUEST"];
+  if (guest) {
+    for (const allowedPath of String(guest).split(",")) {
+      if (allowedPath === "*") return true;
+      if (allowedPath && path.startsWith(allowedPath)) return true;
+    }
+  }
+
+  const authorization = context.request.headers.get("Authorization");
+  if (!authorization || !authorization.startsWith("Basic ")) return false;
+
+  let account;
+  try {
+    account = atob(authorization.slice(6));
+  } catch {
+    return false;
+  }
+
+  if (!account || !context.env[account]) return false;
+
+  for (const allowedPath of String(context.env[account]).split(",")) {
+    if (allowedPath === "*") return true;
+    if (allowedPath && path.startsWith(allowedPath)) return true;
+  }
+  return false;
+}
