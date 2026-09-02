@@ -10,7 +10,6 @@ function unauthorized() {
 
 export async function onRequestPostCreateMultipart(context) {
   if (!get_auth_status(context)) return unauthorized();
-
   const [bucket, path] = parseBucketPath(context);
   if (!bucket || !path) return notFound();
 
@@ -24,29 +23,24 @@ export async function onRequestPostCreateMultipart(context) {
     customMetadata,
   });
 
-  return new Response(
-    JSON.stringify({ key: multipartUpload.key, uploadId: multipartUpload.uploadId }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+  return new Response(JSON.stringify({ key: multipartUpload.key, uploadId: multipartUpload.uploadId }), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function onRequestPostCompleteMultipart(context) {
   if (!get_auth_status(context)) return unauthorized();
-
   const [bucket, path] = parseBucketPath(context);
   if (!bucket || !path) return notFound();
 
-  const request: Request = context.request;
-  const url = new URL(request.url);
-  const uploadId = url.searchParams.get("uploadId");
+  const uploadId = new URL(context.request.url).searchParams.get("uploadId");
   if (!uploadId) return new Response("Missing uploadId", { status: 400 });
 
   try {
-    const completeBody: { parts: Array<any> } = await request.json();
+    const completeBody: { parts: Array<any> } = await context.request.json();
     if (!Array.isArray(completeBody.parts) || !completeBody.parts.length) {
       return new Response("Missing multipart parts", { status: 400 });
     }
-
     const multipartUpload = await bucket.resumeMultipartUpload(path, uploadId);
     const object = await multipartUpload.complete(completeBody.parts);
     return new Response(null, { headers: { etag: object.httpEtag } });
@@ -82,7 +76,6 @@ export async function onRequestPutMultipart(context) {
 
 export async function onRequestPut(context) {
   if (!get_auth_status(context)) return unauthorized();
-
   const url = new URL(context.request.url);
   if (url.searchParams.has("uploadId")) return onRequestPutMultipart(context);
 
@@ -95,7 +88,7 @@ export async function onRequestPut(context) {
 
   const copySource = request.headers.get("x-amz-copy-source");
   if (copySource) {
-    let sourceName;
+    let sourceName: string;
     try {
       sourceName = decodeURIComponent(copySource);
     } catch {
@@ -114,23 +107,19 @@ export async function onRequestPut(context) {
     customMetadata,
     httpMetadata: { contentType: request.headers.get("content-type") || undefined },
   });
-  const { key, size, uploaded } = obj;
-  return new Response(JSON.stringify({ key, size, uploaded }), {
+  return new Response(JSON.stringify({ key: obj.key, size: obj.size, uploaded: obj.uploaded }), {
     headers: { "Content-Type": "application/json" },
   });
 }
 
 export async function onRequestDelete(context) {
   if (!get_auth_status(context)) return unauthorized();
-
   const [bucket, path] = parseBucketPath(context);
   if (!bucket || !path) return notFound();
 
-  // Folder markers represent logical directories. Remove their contents too.
-  if (path.endsWith("/_$folder$") || path.endsWith("_$folder$")) {
-    const prefix = path.endsWith("/_$folder$")
-      ? path.slice(0, -"_$folder$".length)
-      : path.slice(0, -"_$folder$".length);
+  // Only the explicit folder-marker form may trigger recursive deletion.
+  if (path.endsWith("/_$folder$")) {
+    const prefix = path.slice(0, -"_$folder$".length);
     let cursor: string | undefined;
     do {
       const listed = await bucket.list({ prefix, cursor });
