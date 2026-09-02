@@ -1,37 +1,55 @@
-# 利用Cloudflare R2 + Workers搭建在线网盘
+# Cloudflare R2 现代云盘
 
+基于 Cloudflare Pages + Pages Functions + R2 的在线文件管理器。保留原有 R2 文件操作与权限逻辑，同时提供现代化响应式界面。
 
-[汉化修改自/longern/FlareDrive](https://github.com/longern/FlareDrive)
+## Cloudflare Pages 部署
 
-增加了权限系统，支持多管理员，分别授权目录
+连接本仓库到 Cloudflare Pages 后，使用以下构建设置：
 
-cloudflare R2是一个文件储存系统，配合Cloudflare Workers可以实现这样一个网盘系统
+- **Framework preset:** Vite（或 None）
+- **Build command:** `npm run build`
+- **Build output directory:** `dist`
+- **Root directory:** `/`
 
-### 搭建教程
+> 之前版本使用浏览器运行时编译 `.vue` 文件，部署环境容易因 CDN、MIME 或 SFC loader 问题出现白屏。当前版本改为 Vite 在部署时编译 Vue，生产环境不再依赖 `vue3-sfc-loader`。
 
+### R2 / 权限配置
 
-1. fork该仓库
-2. 前往Cloudflare R2新建一个R2储存桶，并前往储存桶设置，允许公开访问，复制**公共存储桶 URL**
-3. 前往Cloudflare Pages新建一个站点，选择连接到Git
+在 Pages 项目的环境变量中配置原项目需要的变量，例如：
 
-4.选择刚刚fork的仓库，点击开始设置
-5.项目名称可以修改，其他项目保持默认不动
+| 变量 | 示例 | 说明 |
+| --- | --- | --- |
+| `PUBURL` | `https://pub-xxxx.r2.dev` | R2 公共存储桶 URL |
+| `GUEST` | `public/` | 游客允许写入的目录 |
+| `admin:123456` | `*` | 管理员账号及可写目录 |
+| `user1:123456` | `user1/,userPublic/` | 普通用户账号及可写目录 |
 
-6.展开环境变量，添加
+生产环境请使用强密码，并避免把敏感配置写入代码仓库。
 
-| 变量名称| 值|
-| --- | --- |
-| PUBURL | 复制的**公共存储桶URL** |
-| GUEST | public/ |
-| admin:123456 | * |
-| user1:123456 | user1/,userPublic/ |
+在 Cloudflare Pages → 项目 → Settings → Functions 中绑定 R2 存储桶，变量名称使用 `BUCKET`，然后重新部署。
 
-以此类推，GUEST代表游客的允许写入目录
+## 本地开发
 
-管理员则以`账号:密码`的形式设置，值代表其允许写入的目录，用`,`隔开，**请勿在前后加逗号，否则会授予所有目录的写入权限**
+```bash
+npm install
+npm run dev
+```
 
-设置好后点击**开始部署**
+生产构建：
 
-7.前往Pages->cloudflare-r2-oss->设置->函数->R2 存储桶绑定,绑定R2存储桶,变量名称`BUCKET`
+```bash
+npm run build
+```
 
-8.在部署页面重新部署即可
+构建完成后，静态前端位于 `dist/`。Pages Functions 仍保留在项目根目录的 `functions/` 中，由 Cloudflare Pages 负责部署。
+
+## 界面升级
+
+- 现代化紫色渐变与玻璃拟态视觉
+- 响应式文件卡片布局
+- 移动端底部上传操作面板
+- 深色模式与减少动效支持
+- 搜索、排序、预览、复制、移动、删除等原有功能保持
+- Vite + Vue 生产构建，避免浏览器运行时编译 SFC 导致白屏
+
+原项目基于 longern/FlareDrive 汉化修改，并加入权限系统与多管理员目录授权功能。

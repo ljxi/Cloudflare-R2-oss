@@ -1,22 +1,19 @@
 {
   "name": "flaredrive",
-  "version": "0.0.1",
-  "description": "CloudFlare R2 storage manager with Pages and Workers.",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare R2 storage manager with Cloudflare Pages and Pages Functions.",
   "scripts": {
-    "dev": "wrangler pages dev . --r2 BUCKET"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/longern/FlareDrive.git"
+  "dependencies": {
+    "axios": "^1.8.4",
+    "vue": "^3.5.13"
   },
-  "author": "longern",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/longern/FlareDrive/issues"
-  },
-  "homepage": "https://github.com/longern/FlareDrive#readme",
   "devDependencies": {
-    "@cloudflare/workers-types": "^3.3.1",
-    "wrangler": "^2.6.2"
+    "@vitejs/plugin-vue": "^5.2.3",
+    "vite": "^6.2.2"
   }
 }
