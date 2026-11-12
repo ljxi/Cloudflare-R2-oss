@@ -5,20 +5,31 @@
       :value="uploadProgress"
       max="100"
     ></progress>
+    <!-- 粘贴上传提示 -->
+    <div v-if="pasteHint" class="paste-hint">
+      {{ pasteHint }}
+    </div>
     <UploadPopup
       v-model="showUploadPopup"
       @upload="onUploadClicked"
       @createFolder="createFolder"
     ></UploadPopup>
-    <button class="upload-button circle" @click="showUploadPopup = true">
-      <img
-        style="filter: invert(100%)"
-        src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/upload_file/materialicons/36dp/2x/baseline_upload_file_black_36dp.png"
-        alt="Upload"
+    <button class="upload-button circle" @click="showUploadPopup = true" title="点击上传文件，或使用 Ctrl+V 粘贴上传">
+      <!-- 替换为内联SVG上传图标 -->
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
         width="36"
         height="36"
+        alt="Upload"
+        style="filter: invert(100%)"
         @contextmenu.prevent
-      />
+      >
+        <path
+          fill="#000000"
+          d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"
+        />
+      </svg>
     </button>
     <div class="app-bar">
       <input type="search" v-model="search" aria-label="Search" />
@@ -54,12 +65,19 @@
           @contextmenu.prevent
         >
           <div class="file-icon">
-            <img
-              src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/folder/materialicons/36dp/2x/baseline_folder_black_36dp.png"
+            <!-- 替换为内联SVG文件夹图标 -->
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
               width="36"
               height="36"
               alt="Folder"
-            />
+            >
+              <path
+                fill="#000000"
+                d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
+              />
+            </svg>
           </div>
           <span class="file-name">..</span>
         </div>
@@ -75,12 +93,19 @@
           "
         >
           <div class="file-icon">
-            <img
-              src="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/png/file/folder/materialicons/36dp/2x/baseline_folder_black_36dp.png"
+            <!-- 替换为内联SVG文件夹图标 -->
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
               width="36"
               height="36"
               alt="Folder"
-            />
+            >
+              <path
+                fill="#000000"
+                d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
+              />
+            </svg>
           </div>
           <span
             class="file-name"
@@ -148,6 +173,11 @@
         @click.stop.prevent
       ></div>
       <ul v-if="typeof focusedItem === 'string'" class="contextmenu-list">
+        <li>
+          <button @click="downloadFolder(focusedItem)">
+            <span>下载文件夹</span>
+          </button>
+        </li>
         <li>
           <button @click="copyLink(`/?p=${encodeURIComponent(focusedItem)}`)">
             <span>复制链接</span>
@@ -230,6 +260,7 @@ export default {
     showUploadPopup: false,
     uploadProgress: null,
     uploadQueue: [],
+    pasteHint: null, // 粘贴提示消息
   }),
 
   computed: {
@@ -256,6 +287,32 @@ export default {
     copyLink(link) {
       const url = new URL(link, window.location.origin);
       navigator.clipboard.writeText(url.toString());
+    },
+
+    async downloadFolder(folderPath) {
+      try {
+        this.showContextMenu = false;
+        
+        // 显示下载提示
+        const folderName = folderPath.split('/').filter(Boolean).pop() || '文件夹';
+        if (!confirm(`确定要下载 ${folderName} 及其所有文件吗？`)) {
+          return;
+        }
+
+        // 创建下载链接
+        const downloadUrl = `/api/download/${folderPath}`;
+        
+        // 使用 a 标签触发下载
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `${folderName}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('下载文件夹失败:', error);
+        alert('下载失败，请重试');
+      }
     },
 
     async copyPaste(source, target) {
@@ -628,6 +685,46 @@ export default {
       if (searchParams.get("p") !== this.cwd)
         this.cwd = searchParams.get("p") || "";
     });
+
+    // 添加粘贴上传功能
+    window.addEventListener("paste", (ev) => {
+      // 如果正在输入框中粘贴，不触发上传
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === "INPUT" || 
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable
+      )) {
+        return;
+      }
+
+      // 获取剪贴板中的文件
+      const items = ev.clipboardData?.items;
+      if (!items) return;
+
+      const files = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) {
+            files.push(file);
+          }
+        }
+      }
+
+      // 如果有文件，则上传
+      if (files.length > 0) {
+        ev.preventDefault();
+        this.uploadFiles(files);
+        
+        // 显示提示信息
+        this.pasteHint = `正在上传 ${files.length} 个文件...`;
+        setTimeout(() => {
+          this.pasteHint = null;
+        }, 3000);
+      }
+    });
   },
 
   components: {
@@ -670,5 +767,31 @@ export default {
   position: absolute;
   top: 100%;
   right: 0;
+}
+
+.paste-hint {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #4CAF50;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-in;
+  font-size: 14px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 </style>
