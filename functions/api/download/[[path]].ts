@@ -1,89 +1,175 @@
 import { notFound, parseBucketPath } from "@/utils/bucket";
 import { get_read_auth_status } from "@/utils/auth";
 
-const PREVIEWABLE_TYPES = new Set([
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
-  "application/xml",
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/bmp",
-  "image/svg+xml",
-  "image/x-icon",
-  "video/mp4",
-  "video/webm",
-  "audio/mpeg",
-  "audio/wav",
-  "audio/ogg",
-]);
+const PUBLIC_DOWNLOAD_EXTENSIONS = new Set(["jar"]);
 
 const EXTENSION_TYPES = {
   txt: "text/plain; charset=utf-8",
+  text: "text/plain; charset=utf-8",
+  log: "text/plain; charset=utf-8",
   md: "text/markdown; charset=utf-8",
+  markdown: "text/markdown; charset=utf-8",
+  mdx: "text/markdown; charset=utf-8",
   csv: "text/csv; charset=utf-8",
+  tsv: "text/tab-separated-values; charset=utf-8",
   json: "application/json; charset=utf-8",
+  jsonc: "application/json; charset=utf-8",
+  json5: "application/json; charset=utf-8",
   xml: "application/xml; charset=utf-8",
-  html: "text/html; charset=utf-8",
+  yaml: "text/yaml; charset=utf-8",
+  yml: "text/yaml; charset=utf-8",
+  toml: "text/plain; charset=utf-8",
+  ini: "text/plain; charset=utf-8",
+  conf: "text/plain; charset=utf-8",
+  cfg: "text/plain; charset=utf-8",
+  properties: "text/plain; charset=utf-8",
+  env: "text/plain; charset=utf-8",
   css: "text/css; charset=utf-8",
+  scss: "text/plain; charset=utf-8",
+  sass: "text/plain; charset=utf-8",
+  less: "text/plain; charset=utf-8",
   js: "application/javascript; charset=utf-8",
+  mjs: "application/javascript; charset=utf-8",
+  cjs: "application/javascript; charset=utf-8",
+  ts: "text/plain; charset=utf-8",
+  mts: "text/plain; charset=utf-8",
+  cts: "text/plain; charset=utf-8",
+  jsx: "text/plain; charset=utf-8",
+  tsx: "text/plain; charset=utf-8",
+  vue: "text/plain; charset=utf-8",
+  svelte: "text/plain; charset=utf-8",
+  astro: "text/plain; charset=utf-8",
+  py: "text/plain; charset=utf-8",
+  java: "text/plain; charset=utf-8",
+  c: "text/plain; charset=utf-8",
+  h: "text/plain; charset=utf-8",
+  cc: "text/plain; charset=utf-8",
+  cpp: "text/plain; charset=utf-8",
+  cxx: "text/plain; charset=utf-8",
+  hpp: "text/plain; charset=utf-8",
+  cs: "text/plain; charset=utf-8",
+  go: "text/plain; charset=utf-8",
+  rs: "text/plain; charset=utf-8",
+  rb: "text/plain; charset=utf-8",
+  php: "text/plain; charset=utf-8",
+  swift: "text/plain; charset=utf-8",
+  kt: "text/plain; charset=utf-8",
+  kts: "text/plain; charset=utf-8",
+  scala: "text/plain; charset=utf-8",
+  lua: "text/plain; charset=utf-8",
+  pl: "text/plain; charset=utf-8",
+  r: "text/plain; charset=utf-8",
+  dart: "text/plain; charset=utf-8",
+  sh: "text/plain; charset=utf-8",
+  bash: "text/plain; charset=utf-8",
+  zsh: "text/plain; charset=utf-8",
+  fish: "text/plain; charset=utf-8",
+  ps1: "text/plain; charset=utf-8",
+  bat: "text/plain; charset=utf-8",
+  cmd: "text/plain; charset=utf-8",
+  sql: "text/plain; charset=utf-8",
+  graphql: "text/plain; charset=utf-8",
+  gql: "text/plain; charset=utf-8",
+  diff: "text/plain; charset=utf-8",
+  patch: "text/plain; charset=utf-8",
+  tex: "text/plain; charset=utf-8",
+  rst: "text/plain; charset=utf-8",
+  adoc: "text/plain; charset=utf-8",
+  org: "text/plain; charset=utf-8",
+
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
+  jpe: "image/jpeg",
+  jfif: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
   bmp: "image/bmp",
   svg: "image/svg+xml",
   ico: "image/x-icon",
-  pdf: "application/pdf",
+  avif: "image/avif",
+  apng: "image/apng",
+
   mp4: "video/mp4",
+  m4v: "video/mp4",
   webm: "video/webm",
+  ogv: "video/ogg",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
   mp3: "audio/mpeg",
   wav: "audio/wav",
-  ogg: "audio/ogg",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  m4a: "audio/mp4",
+  opus: "audio/opus",
+  weba: "audio/webm",
+
+  pdf: "application/pdf",
+
   zip: "application/zip",
   rar: "application/vnd.rar",
   "7z": "application/x-7z-compressed",
   gz: "application/gzip",
   tar: "application/x-tar",
+  jar: "application/java-archive",
+  war: "application/java-archive",
+  apk: "application/vnd.android.package-archive",
+  exe: "application/x-msdownload",
+  msi: "application/x-msi",
+  dmg: "application/x-apple-diskimage",
+  iso: "application/x-iso9660-image",
+  bin: "application/octet-stream",
 };
+
+function getExtension(path) {
+  const idx = path.lastIndexOf(".");
+  if (idx < 0) return "";
+  return path.slice(idx + 1).toLowerCase();
+}
 
 function inferContentType(object, path) {
   const meta = object.httpMetadata && object.httpMetadata.contentType;
-  if (meta) return meta;
-  const idx = path.lastIndexOf(".");
-  const ext = idx >= 0 ? path.slice(idx + 1).toLowerCase() : "";
-  return EXTENSION_TYPES[ext] || "application/octet-stream";
+  const byExt = EXTENSION_TYPES[getExtension(path)];
+  if (meta && meta.toLowerCase() !== "application/octet-stream") return meta;
+  return byExt || meta || "application/octet-stream";
 }
 
-function isPreviewable(contentType) {
+function isPreviewable(path, contentType) {
   const base = contentType.split(";")[0].trim().toLowerCase();
-  return PREVIEWABLE_TYPES.has(base);
+  if (base === "text/html" || base === "application/xhtml+xml") return false;
+  if (base.startsWith("text/")) return true;
+  if (base.startsWith("image/")) return true;
+  if (base.startsWith("audio/")) return true;
+  if (base.startsWith("video/")) return true;
+  if (base === "application/pdf") return true;
+  if (base === "application/json" || base.endsWith("+json")) return true;
+  if (base === "application/xml" || base.endsWith("+xml")) return true;
+  if (base === "application/javascript" || base === "application/ecmascript") return true;
+  return false;
 }
 
 export async function onRequestGet(context) {
   const [bucket, path] = parseBucketPath(context);
   if (!bucket) return notFound();
 
-  if (!get_read_auth_status(context, path)) {
-    const header = new Headers();
-    header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
-    return new Response("没有下载权限", {
-      status: 401,
-      headers: header,
-    });
-  }
-
   const fileObject = await bucket.get(path);
+
   if (fileObject) {
     const contentType = inferContentType(fileObject, path);
-    const previewable = isPreviewable(contentType);
-    const fileName = path.split("/").filter(Boolean).pop() || "file";
+    const previewable = isPreviewable(path, contentType);
+    const publicDownload = PUBLIC_DOWNLOAD_EXTENSIONS.has(getExtension(path));
+    const publicAccess = previewable || publicDownload;
 
+    if (!publicAccess && !get_read_auth_status(context, path)) {
+      const header = new Headers();
+      header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
+      return new Response("没有下载权限", {
+        status: 401,
+        headers: header,
+      });
+    }
+
+    const fileName = path.split("/").filter(Boolean).pop() || "file";
     const headers = new Headers();
     headers.set("Content-Type", contentType);
     headers.set(
@@ -102,6 +188,15 @@ export async function onRequestGet(context) {
     }
 
     return new Response(fileObject.body, { headers });
+  }
+
+  if (!get_read_auth_status(context, path)) {
+    const header = new Headers();
+    header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
+    return new Response("没有下载权限", {
+      status: 401,
+      headers: header,
+    });
   }
 
   try {
