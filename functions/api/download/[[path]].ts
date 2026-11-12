@@ -118,7 +118,6 @@ const EXTENSION_TYPES = {
   msi: "application/x-msi",
   dmg: "application/x-apple-diskimage",
   iso: "application/x-iso9660-image",
-  bin: "application/octet-stream",
 };
 
 function getExtension(path) {
@@ -134,7 +133,7 @@ function inferContentType(object, path) {
   return byExt || meta || "application/octet-stream";
 }
 
-function isPreviewable(path, contentType) {
+function isPreviewable(contentType) {
   const base = contentType.split(";")[0].trim().toLowerCase();
   if (base === "text/html" || base === "application/xhtml+xml") return false;
   if (base.startsWith("text/")) return true;
@@ -148,6 +147,12 @@ function isPreviewable(path, contentType) {
   return false;
 }
 
+function unauthorized() {
+  const header = new Headers();
+  header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
+  return new Response("没有下载权限", { status: 401, headers: header });
+}
+
 export async function onRequestGet(context) {
   const [bucket, path] = parseBucketPath(context);
   if (!bucket) return notFound();
@@ -156,17 +161,12 @@ export async function onRequestGet(context) {
 
   if (fileObject) {
     const contentType = inferContentType(fileObject, path);
-    const previewable = isPreviewable(path, contentType);
+    const previewable = isPreviewable(contentType);
     const publicDownload = PUBLIC_DOWNLOAD_EXTENSIONS.has(getExtension(path));
     const publicAccess = previewable || publicDownload;
 
     if (!publicAccess && !get_read_auth_status(context, path)) {
-      const header = new Headers();
-      header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
-      return new Response("没有下载权限", {
-        status: 401,
-        headers: header,
-      });
+      return unauthorized();
     }
 
     const fileName = path.split("/").filter(Boolean).pop() || "file";
@@ -190,14 +190,7 @@ export async function onRequestGet(context) {
     return new Response(fileObject.body, { headers });
   }
 
-  if (!get_read_auth_status(context, path)) {
-    const header = new Headers();
-    header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
-    return new Response("没有下载权限", {
-      status: 401,
-      headers: header,
-    });
-  }
+  if (!get_read_auth_status(context, path)) return unauthorized();
 
   try {
     const files = [];
