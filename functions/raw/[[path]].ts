@@ -1,8 +1,18 @@
 import { notFound, parseBucketPath } from "@/utils/bucket";
+import { get_read_auth_status } from "@/utils/auth";
 
 export async function onRequestGet(context) {
   const [bucket, path] = parseBucketPath(context);
   if (!bucket) return notFound();
+
+  if (!get_read_auth_status(context, path)) {
+    const header = new Headers();
+    header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
+    return new Response("没有下载权限", {
+      status: 401,
+      headers: header,
+    });
+  }
 
   const urlParts = context.request.url.split("/raw/");
   if (urlParts.length < 2) {
