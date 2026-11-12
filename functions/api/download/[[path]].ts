@@ -19,9 +19,11 @@ const PREVIEWABLE_EXTENSIONS = new Set([
   "pdf",
 ]);
 
-const PUBLIC_DOWNLOAD_EXTENSIONS = new Set(["jar"]);
+const PUBLIC_DOWNLOAD_EXTENSIONS = new Set([
+  "jar", "war",
+]);
 
-const EXTENSION_TYPES = {
+const EXTENSION_TYPES: Record<string, string> = {
   txt: "text/plain; charset=utf-8",
   text: "text/plain; charset=utf-8",
   log: "text/plain; charset=utf-8",
@@ -138,39 +140,52 @@ const EXTENSION_TYPES = {
   iso: "application/x-iso9660-image",
 };
 
-function getExtension(path) {
+function normalizeBucketPath(input: unknown): string {
+  let p = Array.isArray(input) ? input.join("/") : String(input ?? "");
+  p = p.split("?")[0].split("#")[0];
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    // keep as-is
+  }
+  return p.replace(/^\/+/, "");
+}
+
+function getExtension(path: string): string {
   const base = path.slice(path.lastIndexOf("/") + 1);
   const idx = base.lastIndexOf(".");
   if (idx <= 0) return "";
   return base.slice(idx + 1).toLowerCase();
 }
 
-function inferContentType(object, path) {
+function inferContentType(object: any, path: string): string {
   const meta = object.httpMetadata && object.httpMetadata.contentType;
   const byExt = EXTENSION_TYPES[getExtension(path)];
   if (meta && meta.toLowerCase() !== "application/octet-stream") return meta;
   return byExt || meta || "application/octet-stream";
 }
 
-function unauthorized() {
+function unauthorized(): Response {
   const header = new Headers();
   header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
   return new Response("没有下载权限", { status: 401, headers: header });
 }
 
-export async function onRequestGet(context) {
-  const [bucket, path] = parseBucketPath(context);
+export async function onRequestGet(context: any): Promise<Response> {
+  const [bucket, rawPath] = parseBucketPath(context);
   if (!bucket) return notFound();
+
+  const path = normalizeBucketPath(rawPath);
 
   const fileObject = await bucket.get(path);
 
   if (fileObject) {
     const ext = getExtension(path);
     const previewable = PREVIEWABLE_EXTENSIONS.has(ext);
-    const publicDownload = PUBLIC_DOWNLOAD_EXTENSIONS.has(ext);
-    const publicAccess = previewable || publicDownload;
+    const downloadable = PUBLIC_DOWNLOAD_EXTENSIONS.has(ext);
+    const allowWithoutAuth = previewable || downloadable;
 
-    if (!publicAccess && !get_read_auth_status(context, path)) {
+    if (!allowWithoutAuth && !get_read_auth_status(context, path)) {
       return unauthorized();
     }
 
@@ -199,8 +214,8 @@ export async function onRequestGet(context) {
   if (!get_read_auth_status(context, path)) return unauthorized();
 
   try {
-    const files = [];
-    let cursor = undefined;
+    const files: any[] = [];
+    let cursor: string | undefined = undefined;
     const prefix = path.endsWith("/") ? path : path + "/";
 
     do {
@@ -227,7 +242,7 @@ export async function onRequestGet(context) {
 
     (async () => {
       try {
-        const zipFiles = [];
+        const zipFiles: { fileName: Uint8Array; offset: number; crc: number; size: number }[] = [];
         let offset = 0;
 
         for (const file of files) {
@@ -325,13 +340,13 @@ export async function onRequestGet(context) {
         "Content-Disposition": `attachment; filename="${encodeURIComponent(folderName)}.zip"`,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Download error:", error);
     return new Response("下载失败: " + error.message, { status: 500 });
   }
 }
 
-function crc32(data) {
+function crc32(data: Uint8Array): number {
   let crc = 0xffffffff;
   for (let i = 0; i < data.length; i++) {
     crc = crc ^ data[i];
