@@ -1,6 +1,24 @@
 import { notFound, parseBucketPath } from "@/utils/bucket";
 import { get_read_auth_status } from "@/utils/auth";
 
+const PREVIEWABLE_EXTENSIONS = new Set([
+  "txt", "text", "log", "md", "markdown", "mdx", "csv", "tsv",
+  "json", "jsonc", "json5", "xml", "yaml", "yml", "toml", "ini",
+  "conf", "cfg", "properties", "env", "css", "scss", "sass", "less",
+  "js", "mjs", "cjs", "ts", "mts", "cts", "jsx", "tsx",
+  "vue", "svelte", "astro",
+  "py", "java", "c", "h", "cc", "cpp", "cxx", "hpp", "cs",
+  "go", "rs", "rb", "php", "swift", "kt", "kts", "scala",
+  "lua", "pl", "r", "dart",
+  "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+  "sql", "graphql", "gql", "diff", "patch", "tex", "rst", "adoc", "org",
+  "png", "jpg", "jpeg", "jpe", "jfif", "gif", "webp", "bmp",
+  "svg", "ico", "avif", "apng",
+  "mp4", "m4v", "webm", "ogv", "ogg", "oga", "mp3", "wav",
+  "flac", "aac", "m4a", "opus", "weba",
+  "pdf",
+]);
+
 const PUBLIC_DOWNLOAD_EXTENSIONS = new Set(["jar"]);
 
 const EXTENSION_TYPES = {
@@ -121,9 +139,10 @@ const EXTENSION_TYPES = {
 };
 
 function getExtension(path) {
-  const idx = path.lastIndexOf(".");
-  if (idx < 0) return "";
-  return path.slice(idx + 1).toLowerCase();
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  const idx = base.lastIndexOf(".");
+  if (idx <= 0) return "";
+  return base.slice(idx + 1).toLowerCase();
 }
 
 function inferContentType(object, path) {
@@ -131,20 +150,6 @@ function inferContentType(object, path) {
   const byExt = EXTENSION_TYPES[getExtension(path)];
   if (meta && meta.toLowerCase() !== "application/octet-stream") return meta;
   return byExt || meta || "application/octet-stream";
-}
-
-function isPreviewable(contentType) {
-  const base = contentType.split(";")[0].trim().toLowerCase();
-  if (base === "text/html" || base === "application/xhtml+xml") return false;
-  if (base.startsWith("text/")) return true;
-  if (base.startsWith("image/")) return true;
-  if (base.startsWith("audio/")) return true;
-  if (base.startsWith("video/")) return true;
-  if (base === "application/pdf") return true;
-  if (base === "application/json" || base.endsWith("+json")) return true;
-  if (base === "application/xml" || base.endsWith("+xml")) return true;
-  if (base === "application/javascript" || base === "application/ecmascript") return true;
-  return false;
 }
 
 function unauthorized() {
@@ -160,15 +165,16 @@ export async function onRequestGet(context) {
   const fileObject = await bucket.get(path);
 
   if (fileObject) {
-    const contentType = inferContentType(fileObject, path);
-    const previewable = isPreviewable(contentType);
-    const publicDownload = PUBLIC_DOWNLOAD_EXTENSIONS.has(getExtension(path));
+    const ext = getExtension(path);
+    const previewable = PREVIEWABLE_EXTENSIONS.has(ext);
+    const publicDownload = PUBLIC_DOWNLOAD_EXTENSIONS.has(ext);
     const publicAccess = previewable || publicDownload;
 
     if (!publicAccess && !get_read_auth_status(context, path)) {
       return unauthorized();
     }
 
+    const contentType = inferContentType(fileObject, path);
     const fileName = path.split("/").filter(Boolean).pop() || "file";
     const headers = new Headers();
     headers.set("Content-Type", contentType);
