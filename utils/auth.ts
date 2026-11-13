@@ -1,31 +1,70 @@
-export function get_auth_status(context) {
-    var dopath = context.request.url.split("/api/write/items/")[1]
-    if(context.env["GUEST"]){
-        if(dopath.startsWith("_$flaredrive$/thumbnails/"))return true;
-        const allow_guest = context.env["GUEST"].split(",")
-        for (var aa of allow_guest){
-            if(aa == "*"){
-                return true
-            }else if(dopath.startsWith(aa)){
-                return true
-            }
-        }
-    }
-    var headers = new Headers(context.request.headers);
-    if(!headers.get('Authorization'))return false
-    const Authorization=headers.get('Authorization').split("Basic ")[1]
-    const account = atob(Authorization);
-    if(!account)return false
-    if(!context.env[account])return false
-    if(dopath.startsWith("_$flaredrive$/thumbnails/"))return true;
-    const allow = context.env[account].split(",")
-    for (var a of allow){
-        if(a == "*"){
-            return true
-        }else if(dopath.startsWith(a)){
-            return true
-        }
-    }
-    return false;
+const RESERVED_USERNAMES = new Set([
+  "GUEST",
+  "GUEST_READ",
+  "PUBURL",
+  "FETCH_TIMEOUT_MS",
+]);
+
+function normalizeTarget(input) {
+  let p = Array.isArray(input) ? input.join("/") : String(input ?? "");
+  p = p.split("?")[0].split("#")[0];
+  try {
+    p = decodeURIComponent(p);
+  } catch {}
+  return p.replace(/^\/+/, "");
+}
+
+function matchAllowList(list, target) {
+  if (!list || typeof list !== "string") return false;
+  for (const rule of list.split(",")) {
+    const r = rule.trim();
+    if (!r) continue;
+    if (r === "*") return true;
+    if (target.startsWith(r)) return true;
   }
-  
+  return false;
+}
+
+function parseAccount(context) {
+  const auth = context.request.headers.get("Authorization");
+  if (!auth || !/^basic /i.test(auth)) return null;
+  let decoded;
+  try {
+    decoded = atob(auth.slice(6).trim());
+  } catch {
+    return null;
+  }
+  const sep = decoded.indexOf(":");
+  if (sep <= 0 || sep >= decoded.length - 1) return null;
+  const username = decoded.slice(0, sep);
+  if (RESERVED_USERNAMES.has(username)) return null;
+  return decoded;
+}
+
+function checkAuth(context, target, guestEnvKey, defaultWhenUnset) {
+  if (typeof target !== "string") target = "";
+  if (target.startsWith("_$flaredrive$/thumbnails/")) return true;
+
+  const guestConfig = context.env[guestEnvKey];
+  if ((guestConfig === undefined || guestConfig === null) && defaultWhenUnset) {
+    return true;
+  }
+  if (matchAllowList(guestConfig, target)) return true;
+
+  const account = parseAccount(context);
+  if (!account) return false;
+  if (!Object.prototype.hasOwnProperty.call(context.env, account)) return false;
+  const value = context.env[account];
+  if (typeof value !== "string") return false;
+  return matchAllowList(value, target);
+}
+
+export function get_auth_status(context) {
+  const parts = context.request.url.split("/api/write/items/");
+  if (parts.length < 2) return false;
+  return checkAuth(context, normalizeTarget(parts[1] || ""), "GUEST", false);
+}
+
+export function get_read_auth_status(context, path) {
+  return checkAuth(context, normalizeTarget(path), "GUEST_READ", true);
+}
