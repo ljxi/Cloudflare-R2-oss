@@ -1,38 +1,93 @@
 import { notFound, parseBucketPath } from "@/utils/bucket";
 import { get_read_auth_status } from "@/utils/auth";
 
+const DEFAULT_ZIP_MAX_FILES = 1000;
+const DEFAULT_ZIP_MAX_BYTES = 500 * 1024 * 1024;
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function createCrc32() {
+  let crc = 0xffffffff;
+  return {
+    update(data) {
+      for (let i = 0; i < data.length; i++) {
+        crc = CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+      }
+    },
+    digest() {
+      return (crc ^ 0xffffffff) >>> 0;
+    },
+  };
+}
+
+function normalizeBucketPath(input) {
+  let p = Array.isArray(input) ? input.join("/") : String(input ?? "");
+  p = p.split("?")[0].split("#")[0];
+  try {
+    p = decodeURIComponent(p);
+  } catch {}
+  return p.replace(/^\/+/, "");
+}
+
+function dosDateTime(d) {
+  const time =
+    ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xffff;
+  const date =
+    (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) &
+    0xffff;
+  return { time, date };
+}
+
+function unauthorized() {
+  const header = new Headers();
+  header.set("WWW-Authenticate", 'Basic realm="需要登录下载"');
+  return new Response("没有下载权限", { status: 401, headers: header });
+}
+
+function zipHeaders(folderName) {
+  const ascii =
+    folderName.replace(/[^\x20-\x7e]/g, "_").replace(/["\r\n]/g, "_") || "download";
+  const headers = new Headers();
+  headers.set("Content-Type", "application/zip");
+  headers.set(
+    "Content-Disposition",
+    `attachment; filename="${ascii}.zip"; filename*=UTF-8''${encodeURIComponent(folderName)}.zip`
+  );
+  headers.set("X-Content-Type-Options", "nosniff");
+  return headers;
+}
+
 export async function onRequestGet(context) {
-  const [bucket, path] = parseBucketPath(context);
+  const [bucket, rawPath] = parseBucketPath(context);
   if (!bucket) return notFound();
 
-  // 检查读取权限
+  const path = normalizeBucketPath(rawPath);
+
   if (!get_read_auth_status(context, path)) {
-    var header = new Headers()
-    header.set("WWW-Authenticate", 'Basic realm="需要登录下载"')
-    return new Response("没有下载权限", {
-      status: 401,
-      headers: header,
-    });
+    return unauthorized();
   }
 
   try {
-    // 获取目录下所有文件
     const files = [];
     let cursor = undefined;
-    const prefix = path.endsWith('/') ? path : path + '/';
+    const prefix = path.endsWith("/") ? path : path + "/";
 
     do {
-      const listed = await bucket.list({
-        prefix: prefix,
-        cursor: cursor,
-      });
-
+      const listed = await bucket.list({ prefix, cursor });
       for (const object of listed.objects) {
-        // 跳过文件夹标记文件
-        if (object.key.endsWith('_$folder$')) continue;
+        if (object.key.endsWith("_$folder$")) continue;
         files.push(object);
       }
-
       cursor = listed.truncated ? listed.cursor : undefined;
     } while (cursor);
 
@@ -40,130 +95,138 @@ export async function onRequestGet(context) {
       return new Response("目录为空或不存在", { status: 404 });
     }
 
-    // 使用 ZIP 流式压缩
+    const maxFiles = Number(context.env["ZIP_MAX_FILES"]) || DEFAULT_ZIP_MAX_FILES;
+    if (files.length > maxFiles) {
+      return new Response(`文件数量超过 ${maxFiles}，请分批下载`, { status: 413 });
+    }
+
+    const maxBytes = Number(context.env["ZIP_MAX_BYTES"]) || DEFAULT_ZIP_MAX_BYTES;
+    let totalSize = 0;
+    for (const f of files) totalSize += f.size || 0;
+    if (totalSize > maxBytes) {
+      const mb = Math.floor(maxBytes / 1024 / 1024);
+      return new Response(`目录总大小超过 ${mb}MB，请分批下载`, { status: 413 });
+    }
+
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
 
-    // 开始压缩过程（在后台异步执行）
     (async () => {
       try {
-        // ZIP 文件头
-        const zipFiles = [];
+        const centralEntries = [];
         let offset = 0;
+        const { time, date } = dosDateTime(new Date());
+        const FLAGS = 0x0008 | 0x0800;
 
         for (const file of files) {
           const object = await bucket.get(file.key);
-          if (!object) continue;
+          if (!object || !object.body) continue;
 
           const fileName = file.key.substring(prefix.length);
           const fileNameBytes = encoder.encode(fileName);
-          const fileData = new Uint8Array(await object.arrayBuffer());
 
-          // 本地文件头
           const localHeader = new Uint8Array(30 + fileNameBytes.length);
           const view = new DataView(localHeader.buffer);
-          
-          view.setUint32(0, 0x04034b50, true); // 本地文件头签名
-          view.setUint16(4, 20, true); // 版本
-          view.setUint16(6, 0, true); // 标志位
-          view.setUint16(8, 0, true); // 压缩方法（0=不压缩）
-          view.setUint16(10, 0, true); // 修改时间
-          view.setUint16(12, 0, true); // 修改日期
-          view.setUint32(14, crc32(fileData), true); // CRC-32
-          view.setUint32(18, fileData.length, true); // 压缩后大小
-          view.setUint32(22, fileData.length, true); // 未压缩大小
-          view.setUint16(26, fileNameBytes.length, true); // 文件名长度
-          view.setUint16(28, 0, true); // 额外字段长度
-
+          view.setUint32(0, 0x04034b50, true);
+          view.setUint16(4, 20, true);
+          view.setUint16(6, FLAGS, true);
+          view.setUint16(8, 0, true);
+          view.setUint16(10, time, true);
+          view.setUint16(12, date, true);
+          view.setUint32(14, 0, true);
+          view.setUint32(18, 0, true);
+          view.setUint32(22, 0, true);
+          view.setUint16(26, fileNameBytes.length, true);
+          view.setUint16(28, 0, true);
           localHeader.set(fileNameBytes, 30);
 
+          const localHeaderOffset = offset;
           await writer.write(localHeader);
-          await writer.write(fileData);
+          offset += localHeader.length;
 
-          zipFiles.push({
+          const crcState = createCrc32();
+          let fileSize = 0;
+          const reader = object.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value && value.length) {
+              crcState.update(value);
+              fileSize += value.length;
+              await writer.write(value);
+              offset += value.length;
+            }
+          }
+          const crc = crcState.digest();
+
+          const dd = new Uint8Array(16);
+          const ddView = new DataView(dd.buffer);
+          ddView.setUint32(0, 0x08074b50, true);
+          ddView.setUint32(4, crc, true);
+          ddView.setUint32(8, fileSize, true);
+          ddView.setUint32(12, fileSize, true);
+          await writer.write(dd);
+          offset += dd.length;
+
+          centralEntries.push({
             fileName: fileNameBytes,
-            offset: offset,
-            crc: crc32(fileData),
-            size: fileData.length,
+            offset: localHeaderOffset,
+            crc,
+            size: fileSize,
           });
-
-          offset += localHeader.length + fileData.length;
         }
 
-        // 中央目录
         let centralDirSize = 0;
-        for (const zipFile of zipFiles) {
-          const centralHeader = new Uint8Array(46 + zipFile.fileName.length);
+        for (const entry of centralEntries) {
+          const centralHeader = new Uint8Array(46 + entry.fileName.length);
           const view = new DataView(centralHeader.buffer);
-
-          view.setUint32(0, 0x02014b50, true); // 中央目录文件头签名
-          view.setUint16(4, 20, true); // 制作版本
-          view.setUint16(6, 20, true); // 解压版本
-          view.setUint16(8, 0, true); // 标志位
-          view.setUint16(10, 0, true); // 压缩方法
-          view.setUint16(12, 0, true); // 修改时间
-          view.setUint16(14, 0, true); // 修改日期
-          view.setUint32(16, zipFile.crc, true); // CRC-32
-          view.setUint32(20, zipFile.size, true); // 压缩后大小
-          view.setUint32(24, zipFile.size, true); // 未压缩大小
-          view.setUint16(28, zipFile.fileName.length, true); // 文件名长度
-          view.setUint16(30, 0, true); // 额外字段长度
-          view.setUint16(32, 0, true); // 文件注释长度
-          view.setUint16(34, 0, true); // 磁盘号
-          view.setUint16(36, 0, true); // 内部文件属性
-          view.setUint32(38, 0, true); // 外部文件属性
-          view.setUint32(42, zipFile.offset, true); // 本地文件头偏移
-
-          centralHeader.set(zipFile.fileName, 46);
-
+          view.setUint32(0, 0x02014b50, true);
+          view.setUint16(4, 20, true);
+          view.setUint16(6, 20, true);
+          view.setUint16(8, FLAGS, true);
+          view.setUint16(10, 0, true);
+          view.setUint16(12, time, true);
+          view.setUint16(14, date, true);
+          view.setUint32(16, entry.crc, true);
+          view.setUint32(20, entry.size, true);
+          view.setUint32(24, entry.size, true);
+          view.setUint16(28, entry.fileName.length, true);
+          view.setUint16(30, 0, true);
+          view.setUint16(32, 0, true);
+          view.setUint16(34, 0, true);
+          view.setUint16(36, 0, true);
+          view.setUint32(38, 0, true);
+          view.setUint32(42, entry.offset, true);
+          centralHeader.set(entry.fileName, 46);
           await writer.write(centralHeader);
           centralDirSize += centralHeader.length;
         }
 
-        // 中央目录结束记录
         const endRecord = new Uint8Array(22);
         const endView = new DataView(endRecord.buffer);
-        endView.setUint32(0, 0x06054b50, true); // 结束记录签名
-        endView.setUint16(4, 0, true); // 磁盘号
-        endView.setUint16(6, 0, true); // 中央目录开始磁盘号
-        endView.setUint16(8, zipFiles.length, true); // 本磁盘上的记录数
-        endView.setUint16(10, zipFiles.length, true); // 中央目录记录总数
-        endView.setUint32(12, centralDirSize, true); // 中央目录大小
-        endView.setUint32(16, offset, true); // 中央目录偏移
-        endView.setUint16(20, 0, true); // 注释长度
-
+        endView.setUint32(0, 0x06054b50, true);
+        endView.setUint16(4, 0, true);
+        endView.setUint16(6, 0, true);
+        endView.setUint16(8, centralEntries.length, true);
+        endView.setUint16(10, centralEntries.length, true);
+        endView.setUint32(12, centralDirSize, true);
+        endView.setUint32(16, offset, true);
+        endView.setUint16(20, 0, true);
         await writer.write(endRecord);
         await writer.close();
       } catch (error) {
-        console.error('ZIP creation error:', error);
-        await writer.abort(error);
+        console.error("ZIP creation error:", error);
+        try {
+          await writer.abort(error);
+        } catch {}
       }
     })();
 
-    // 获取文件夹名称
-    const folderName = path.split('/').filter(Boolean).pop() || 'download';
-
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(folderName)}.zip"`,
-      },
-    });
+    const folderName = path.split("/").filter(Boolean).pop() || "download";
+    return new Response(readable, { headers: zipHeaders(folderName) });
   } catch (error) {
-    console.error('Download error:', error);
-    return new Response("下载失败: " + error.message, { status: 500 });
+    console.error("Download error:", error);
+    return new Response("下载失败", { status: 500 });
   }
-}
-
-// CRC-32 计算函数
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc = crc ^ data[i];
-    for (let j = 0; j < 8; j++) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
