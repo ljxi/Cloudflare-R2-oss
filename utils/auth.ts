@@ -1,4 +1,4 @@
-const RESERVED_ENV_KEYS = new Set([
+const RESERVED_USERNAMES = new Set([
   "GUEST",
   "GUEST_READ",
   "PUBURL",
@@ -25,16 +25,23 @@ function parseAccount(context) {
   } catch {
     return null;
   }
-  if (!decoded || !decoded.includes(":")) return null;
-  if (RESERVED_ENV_KEYS.has(decoded)) return null;
+  const sep = decoded.indexOf(":");
+  if (sep <= 0 || sep >= decoded.length - 1) return null;
+  const username = decoded.slice(0, sep);
+  if (RESERVED_USERNAMES.has(username)) return null;
   return decoded;
 }
 
-function checkAuth(context, target, guestEnvKey) {
+function checkAuth(context, target, guestEnvKey, defaultWhenUnset) {
   if (typeof target !== "string") target = "";
   if (target.startsWith("_$flaredrive$/thumbnails/")) return true;
 
-  if (matchAllowList(context.env[guestEnvKey], target)) return true;
+  const guestConfig = context.env[guestEnvKey];
+  if ((guestConfig === undefined || guestConfig === null) && defaultWhenUnset) {
+    return true;
+  }
+
+  if (matchAllowList(guestConfig, target)) return true;
 
   const account = parseAccount(context);
   if (!account) return false;
@@ -46,10 +53,10 @@ function checkAuth(context, target, guestEnvKey) {
 }
 
 export function get_auth_status(context) {
-  const target = (context.request.url.split("/api/write/items/")[1] || "");
-  return checkAuth(context, target, "GUEST");
+  const target = context.request.url.split("/api/write/items/")[1] || "";
+  return checkAuth(context, target, "GUEST", false);
 }
 
 export function get_read_auth_status(context, path) {
-  return checkAuth(context, path, "GUEST_READ");
+  return checkAuth(context, path, "GUEST_READ", true);
 }
