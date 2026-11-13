@@ -5,6 +5,15 @@ const RESERVED_USERNAMES = new Set([
   "FETCH_TIMEOUT_MS",
 ]);
 
+function normalizeTarget(input) {
+  let p = Array.isArray(input) ? input.join("/") : String(input ?? "");
+  p = p.split("?")[0].split("#")[0];
+  try {
+    p = decodeURIComponent(p);
+  } catch {}
+  return p.replace(/^\/+/, "");
+}
+
 function matchAllowList(list, target) {
   if (!list || typeof list !== "string") return false;
   for (const rule of list.split(",")) {
@@ -18,7 +27,7 @@ function matchAllowList(list, target) {
 
 function parseAccount(context) {
   const auth = context.request.headers.get("Authorization");
-  if (!auth || !auth.startsWith("Basic ")) return null;
+  if (!auth || !/^basic /i.test(auth)) return null;
   let decoded;
   try {
     decoded = atob(auth.slice(6).trim());
@@ -40,12 +49,10 @@ function checkAuth(context, target, guestEnvKey, defaultWhenUnset) {
   if ((guestConfig === undefined || guestConfig === null) && defaultWhenUnset) {
     return true;
   }
-
   if (matchAllowList(guestConfig, target)) return true;
 
   const account = parseAccount(context);
   if (!account) return false;
-
   if (!Object.prototype.hasOwnProperty.call(context.env, account)) return false;
   const value = context.env[account];
   if (typeof value !== "string") return false;
@@ -53,10 +60,11 @@ function checkAuth(context, target, guestEnvKey, defaultWhenUnset) {
 }
 
 export function get_auth_status(context) {
-  const target = context.request.url.split("/api/write/items/")[1] || "";
-  return checkAuth(context, target, "GUEST", false);
+  const parts = context.request.url.split("/api/write/items/");
+  if (parts.length < 2) return false;
+  return checkAuth(context, normalizeTarget(parts[1] || ""), "GUEST", false);
 }
 
 export function get_read_auth_status(context, path) {
-  return checkAuth(context, path, "GUEST_READ", true);
+  return checkAuth(context, normalizeTarget(path), "GUEST_READ", true);
 }
