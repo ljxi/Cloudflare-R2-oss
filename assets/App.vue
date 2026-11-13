@@ -21,7 +21,8 @@
         viewBox="0 0 24 24"
         width="36"
         height="36"
-        alt="Upload"
+        role="img"
+        aria-label="上传"
         style="filter: invert(100%)"
         @contextmenu.prevent
       >
@@ -34,13 +35,14 @@
     <div class="app-bar">
       <input type="search" v-model="search" aria-label="Search" />
       <div class="menu-button">
-        <button class="circle" @click="showMenu = true">
+        <button class="circle" @click="showMenu = true" aria-label="菜单">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 448 512"
             width="24"
             height="24"
-            title="Menu"
+            role="img"
+            aria-label="菜单"
             style="display: block; margin: 4px"
           >
             <!--! Font Awesome Pro 6.2.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2022 Fonticons, Inc. -->
@@ -71,7 +73,8 @@
               viewBox="0 0 24 24"
               width="36"
               height="36"
-              alt="Folder"
+              aria-hidden="true"
+              focusable="false"
             >
               <path
                 fill="#000000"
@@ -99,7 +102,8 @@
               viewBox="0 0 24 24"
               width="36"
               height="36"
-              alt="Folder"
+              aria-hidden="true"
+              focusable="false"
             >
               <path
                 fill="#000000"
